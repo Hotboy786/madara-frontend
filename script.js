@@ -339,6 +339,19 @@ async function callPanelAPI(baseUrl, apiKey, actionParams) {
     throw new Error(`Proxy returned non-JSON data (HTTP ${res.status}): ${preview || res.statusText}`);
   }
 
+  if (data && data.code === "UPSTREAM_TIMEOUT") {
+    const timeoutSeconds = Number(data.timeoutMs) > 0 ? Math.round(Number(data.timeoutMs) / 1000) : 30;
+    const action = data.action || actionParams.action || "request";
+    const providerName = data.provider === "organic-smm" || /\/functions\/v1\/public-api\/?$/i.test(new URL(baseUrl).pathname)
+      ? "Organic SMM API"
+      : "Provider API";
+    const timeoutError = new Error(
+      `${providerName} timed out during the "${action}" action after ${timeoutSeconds} seconds. This is an upstream timeout, not proof that the API key is invalid. Ask the provider to verify API availability and access from your Render server.`
+    );
+    timeoutError.code = "UPSTREAM_TIMEOUT";
+    throw timeoutError;
+  }
+
   const details = data && typeof data === "object" ? data.details : null;
   const providerMessage =
     (data && (data.error || data.message || (data.success === false && data.error_description))) ||
@@ -440,7 +453,9 @@ async function attemptConnect(name, baseUrl, apiKey, silent) {
     addLog(`Connected to panel "${name}" at ${baseUrl}`);
   } catch (err) {
     if (!silent) {
-      connectStatusEl.textContent = `Couldn\'t get a valid response from that panel (${err.message}). Double-check the URL/key and try again.`;
+      connectStatusEl.textContent = err.code === "UPSTREAM_TIMEOUT"
+        ? err.message
+        : `Couldn\'t get a valid response from that panel (${err.message}). Double-check the URL/key and try again.`;
       connectStatusEl.className = "connect-status error";
     }
     addLog(`Connect failed for ${baseUrl}${silent ? " (auto-reconnect)" : ""}`);
