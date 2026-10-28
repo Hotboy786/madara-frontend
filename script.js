@@ -328,8 +328,34 @@ async function callPanelAPI(baseUrl, apiKey, actionParams) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ baseUrl, params }),
   });
-  const data = await res.json();
-  if (data && data.error) throw new Error(data.error);
+
+  let data;
+  const responseText = await res.text();
+  try {
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    let preview = responseText.slice(0, 240).replace(/\s+/g, " ");
+    if (apiKey) preview = preview.split(apiKey).join("[redacted]");
+    throw new Error(`Proxy returned non-JSON data (HTTP ${res.status}): ${preview || res.statusText}`);
+  }
+
+  const details = data && typeof data === "object" ? data.details : null;
+  const providerMessage =
+    (data && (data.error || data.message || (data.success === false && data.error_description))) ||
+    (details && typeof details === "object" && (details.error || details.message || details.msg)) ||
+    (typeof details === "string" ? details : "");
+  const failedStatus = data && typeof data.status === "string" && data.status.toLowerCase() === "error";
+
+  if (!res.ok || providerMessage || (data && data.success === false) || failedStatus) {
+    let message = providerMessage || `HTTP ${res.status} ${res.statusText}`;
+    if (typeof details === "string" && details && details !== message) message += ` — ${details}`;
+    else if (details && typeof details === "object") {
+      const detailText = details.error || details.message || details.msg;
+      if (detailText && detailText !== message) message += ` — ${detailText}`;
+    }
+    if (apiKey) message = message.split(apiKey).join("[redacted]");
+    throw new Error(message.slice(0, 500));
+  }
   return data;
 }
 
