@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Madara Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="gate.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- HEADER -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-logo">Madara</span>
+      <span class="brand-name">Panel</span>
+    </div>
+    <div class="balance-pill">
+      <span class="balance-dot"></span>
+      Balance: <span id="balanceValue" class="mono">—</span>
+    </div>
+  </header>
+
+  <!-- NAV TABS -->
+  <nav class="tabs">
+    <button class="tab-btn" data-tab="api">🔑 API</button>
+    <button class="tab-btn active" data-tab="order">📦 Order</button>
+    <button class="tab-btn" data-tab="tracker">📡 Tracker</button>
+    <button class="tab-btn" data-tab="schedules">📅 Schedules</button>
+    <button class="tab-btn" data-tab="logs">🧾 Logs</button>
+  </nav>
+
+  <main class="content">
+
+    <!-- ================= API TAB ================= -->
+    <section class="panel" id="tab-api">
+      <div class="panel-head">
+        <h1>Connect a panel</h1>
+        <p>Works with any SMM panel that exposes a standard key + action API — not tied to one provider.</p>
+      </div>
+
+      <div class="api-card">
+        <div class="field-block">
+          <span class="field-label">Profile name (optional)</span>
+          <input id="profileNameInput" class="input full" type="text" placeholder="e.g. YoYo Media">
+        </div>
+        <div class="field-block">
+          <span class="field-label">Panel website / API URL</span>
+          <input id="apiBaseUrl" class="input full" type="text" placeholder="https://yoyomedia.in/api/v2">
+        </div>
+        <div class="field-block">
+          <span class="field-label">API key</span>
+          <input id="apiKeyInput" class="input full" type="text" placeholder="Your panel API key">
+        </div>
+
+        <button id="connectBtn" class="submit-btn">Connect &amp; Save</button>
+        <div id="connectStatus" class="connect-status"></div>
+      </div>
+
+      <div class="api-card">
+        <div class="card-title"><span class="card-icon">📋</span> Fetched services</div>
+        <div id="fetchedServicesList" class="fetched-services-list">
+          <div class="summary-empty">Not connected yet — using demo catalog until you connect.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ORDER TAB ================= -->
+    <section class="panel active" id="tab-order">
+
+      <div class="create-order-card">
+
+        <div class="card-title"><span class="card-icon">📁</span> Create Order</div>
+
+        <div class="mode-toggle-row">
+          <button class="mode-toggle-btn active" id="autoModeBtn" data-mode="auto">⚙️ Auto</button>
+          <button class="mode-toggle-btn" id="manualModeBtn" data-mode="manual">✋ Manual</button>
+        </div>
+
+        <button class="presets-btn" id="presetsBtn">
+          <span><span class="card-icon">💾</span> Saved Presets</span>
+          <span class="chevron">▾</span>
+        </button>
+
+        <div class="field-block">
+          <span class="field-label">Schedule name</span>
+          <input id="scheduleName" class="input full" type="text" placeholder="e.g. Reel Daily Push">
+        </div>
+
+        <div class="field-block">
+          <span class="field-label">Target link</span>
+          <input id="targetLink" class="input full" type="text" placeholder="https://instagram.com/p/...">
+        </div>
+
+        <div class="section-title"><span class="card-icon">🧩</span> Services</div>
+
+        <!-- AUTO MODE: fixed toggle cards -->
+        <div id="autoServicesBlock">
+          <div id="autoFixedCards" class="fixed-svc-cards"></div>
+
+          <div class="field-block" style="margin-top:16px;">
+            <span class="field-label">⏱ Leg Gap Mode</span>
+            <div class="gap-mode-row">
+              <button class="gap-mode-btn active" id="gapAutoBtn" data-gap="auto">Auto (8–14 min)</button>
+              <button class="gap-mode-btn" id="gapManualBtn" data-gap="manual">Manual (fixed)</button>
+            </div>
+          </div>
+
+          <div class="extra-legs-head" id="autoExtraLegsHead" style="display:none;">
+            <span>🦵 Extra Services — Legs <span id="autoExtraLegsCount" class="extra-legs-count"></span></span>
+            <button class="extra-legs-expand" id="autoExtraLegsToggle">▾</button>
+          </div>
+          <div id="autoExtraLegsList" class="extra-legs-list" style="display:none;"></div>
+        </div>
+
+        <!-- MANUAL MODE: dynamic add/remove slots (old curve system) -->
+        <div id="manualServicesBlock" style="display:none;">
+          <div id="servicesContainer" class="services-container"></div>
+
+          <div class="extra-legs-head" id="extraServicesHead" style="display:none;">
+            <span>🦵 Extra Services <span id="extraServicesCount" class="extra-legs-count"></span></span>
+            <button class="extra-legs-expand" id="extraServicesToggle">▾</button>
+          </div>
+          <div id="extraServicesContainer" class="services-container extra-services-container" style="display:none;"></div>
+
+          <button id="addServiceBtn" class="add-slot-btn">+ Add slot</button>
+        </div>
+
+      </div>
+
+      <!-- GROWTH GRAPH -->
+      <div class="graph-card">
+        <div class="graph-head">
+          <span class="graph-title">Delivery by service</span>
+          <div class="live-pill"><span class="live-dot"></span>LIVE</div>
+        </div>
+        <svg id="growthSvg" class="graph-svg" viewBox="0 0 600 120" preserveAspectRatio="none">
+          <g id="graphLinesGroup"></g>
+        </svg>
+        <div id="growthTooltip" class="graph-tooltip" style="display:none;"></div>
+        <div id="graphLegend" class="graph-legend"></div>
+      </div>
+
+      <!-- COST SUMMARY -->
+      <div class="cost-card">
+        <div class="summary-row">
+          <span>Total quantity</span>
+          <span id="totalQty" class="mono">0</span>
+        </div>
+        <div class="summary-row summary-total">
+          <span>Estimated cost</span>
+          <span id="totalCost" class="mono">$0.00</span>
+        </div>
+        <button class="submit-btn" id="submitOrderBtn">Create Order</button>
+        <div id="orderStatus" class="connect-status"></div>
+      </div>
+
+    </section>
+
+    <!-- ================= TRACKER TAB ================= -->
+    <section class="panel" id="tab-tracker">
+      <div class="panel-head">
+        <h1>Tracker</h1>
+        <p>Shows the real delivery history this panel has placed for a link — only orders from the last 7 days.</p>
+      </div>
+
+      <div class="api-card">
+        <div class="field-block">
+          <span class="field-label">Reel / post link</span>
+          <input id="trackerLink" class="input full" type="text" placeholder="https://instagram.com/reel/...">
+        </div>
+        <button id="trackBtn" class="submit-btn">Show history</button>
+      </div>
+
+      <div class="graph-card ig-style-card">
+        <div class="graph-head">
+          <span class="graph-title">Views over time</span>
+        </div>
+        <div id="trackerPills" class="ig-pills"></div>
+        <svg id="trackerSvg" class="graph-svg ig-graph-svg" viewBox="0 0 700 380" preserveAspectRatio="none">
+          <g id="trackerGridGroup"></g>
+          <g id="trackerLinesGroup"></g>
+          <g id="trackerAxisGroup"></g>
+        </svg>
+        <div id="trackerEmpty" class="summary-empty">Enter a link and click "Show history".</div>
+        <p class="tracker-note">⚠️ Still improving — tracking accuracy may not be fully reliable yet.</p>
+      </div>
+    </section>
+
+    <!-- ================= SCHEDULES TAB ================= -->
+    <section class="panel" id="tab-schedules">
+      <div class="panel-head">
+        <h1>Schedules</h1>
+        <p>Active orders you can pause, resume, or delete — plus who's connecting through this panel.</p>
+      </div>
+
+      <div id="schedulesLocked" class="lock-card">
+        <div class="lock-icon">🔒</div>
+        <div class="lock-title">Protected tab</div>
+        <input id="schedulesPassword" class="input full" type="password" placeholder="Enter password">
+        <button id="unlockSchedulesBtn" class="submit-btn">Unlock</button>
+        <div id="lockError" class="lock-error"></div>
+      </div>
+
+      <div id="schedulesContent" style="display:none;">
+        <button id="refreshActivityBtn" class="add-slot-btn" style="margin-bottom:14px;">↻ Refresh</button>
+
+        <div class="section-title"><span class="card-icon">📦</span> Orders</div>
+        <div id="ordersList" class="orders-list">
+          <div class="summary-empty">Loading...</div>
+        </div>
+
+        <div class="section-title" style="margin-top:24px;"><span class="card-icon">🔌</span> Connections &amp; orders log</div>
+        <div id="activityLogTable" class="schedule-table">
+          <div class="summary-empty">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= LOGS TAB ================= -->
+    <section class="panel" id="tab-logs">
+      <div class="panel-head">
+        <h1>Activity logs</h1>
+        <p>Every action taken in this session, most recent first.</p>
+      </div>
+      <div id="logsList" class="logs-list"></div>
+
+      <div class="panel-head" style="margin-top:26px;">
+        <h1 style="font-size:1.1rem;">Delivery history</h1>
+        <p>What actually got delivered, when, and to which link — saved on this device.</p>
+      </div>
+      <div id="deliveryHistoryList" class="logs-list"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- CUSTOM GRAPH EDITOR MODAL -->
+<div id="graphModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span>Custom delivery curve</span>
+      <button id="closeGraphModal" class="remove-btn">✕</button>
+    </div>
+    <p class="modal-hint">Drag the 20 dots up or down to shape how delivery ramps across the duration. Higher = more units in that slice.</p>
+    <svg id="customGraphSvg" class="custom-graph-svg" viewBox="0 0 600 200"></svg>
+    <div class="field-block">
+      <span class="field-label">Name (to save permanently on this device)</span>
+      <input id="customGraphName" class="input full" type="text" placeholder="e.g. My Reel Curve">
+    </div>
+    <button id="saveGraphBtn" class="submit-btn">Save curve</button>
+  </div>
+</div>
+
+<!-- TEMPLATE for one service slot -->
+<template id="serviceTemplate">
+  <div class="service-card">
+
+    <div class="slot-head">
+      <span class="slot-label">Slot</span>
+      <button class="remove-btn" title="Remove slot">✕</button>
+    </div>
+
+    <div class="slot-row">
+      <select class="input category-select"></select>
+
+      <div class="service-search-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="input service-search" type="text" placeholder="Search service ID or name">
+        <div class="service-dropdown"></div>
+      </div>
+    </div>
+
+    <div class="selected-service-note">No service selected yet</div>
+
+    <div class="field-block">
+      <span class="field-label">Quantity</span>
+      <input class="input full qty" type="number" min="1" placeholder="e.g. 2000" value="1000">
+      <span class="qty-warning"></span>
+    </div>
+
+    <div class="field-block">
+      <span class="field-label">Duration (hours)</span>
+      <input class="input full duration" type="number" min="1" max="72" value="24">
+    </div>
+
+    <div class="field-block randomness-block">
+      <span class="field-label">
+        Delivery randomness — <span class="randomness-readout mono">18%</span>
+      </span>
+      <input class="input full randomness" type="range" min="1" max="40" value="18">
+      <span class="randomness-caption">At 40% delivery becomes fully random (real drip-style, spread over 12–24h)</span>
+    </div>
+
+    <div class="field-block graph-select-block">
+      <span class="field-label">Delivery curve</span>
+      <div class="graph-select-row">
+        <select class="input full graph-select">
+          <option value="steady">Steady Drip</option>
+          <option value="burst">Instant Burst</option>
+          <option value="late">Late Spike</option>
+          <option value="organic1" selected>Organic — Morning Rise</option>
+          <option value="organic2">Organic — Evening Wave</option>
+          <option value="custom">Custom (edit below)</option>
+        </select>
+        <button class="edit-graph-btn">Edit</button>
+      </div>
+    </div>
+
+    <div class="preview-head">
+      <span>Delivery timeline</span>
+      <span class="preview-cost mono">$0.00</span>
+    </div>
+
+    <label class="legs-toggle-row">
+      <input type="checkbox" class="show-legs-toggle">
+      Show leg-by-leg table
+    </label>
+
+    <div class="legs-summary-note"></div>
+
+    <div class="legs-preview" style="display:none;"></div>
+
+  </div>
+</template>
+
+<script src="script.js"></script>
+  <script src="gate.js"></script>
+</body>
+</html>
