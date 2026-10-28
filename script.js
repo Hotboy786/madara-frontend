@@ -328,88 +328,36 @@ async function callPanelAPI(baseUrl, apiKey, actionParams) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ baseUrl, params }),
   });
-  const data = await res.json();
-  if (data && data.error) throw new Error(data.error);
-  return data;
-}
 
-// ==========================================
-// PANEL CONNECT
-// ==========================================
-connectBtn.addEventListener("click", () => {
-  const name = document.getElementById("profileNameInput").value.trim() || `Panel ${PROFILES.length + 1}`;
-  attemptConnect(name, apiBaseUrlInput.value.trim(), apiKeyInputEl.value.trim(), false);
-});
-
-async function attemptConnect(name, baseUrl, apiKey, silent) {
-  if (!baseUrl) {
-    if (!silent) {
-      connectStatusEl.textContent = "Enter the panel's API URL first.";
-      connectStatusEl.className = "connect-status error";
-    }
-    return;
-  }
-
-  if (!silent) {
-    connectStatusEl.textContent = "Connecting...";
-    connectStatusEl.className = "connect-status";
-  }
-
+  let data;
+  const responseText = await res.text();
   try {
-    const balanceData = await callPanelAPI(baseUrl, apiKey, { action: "balance" });
-    const servicesData = await callPanelAPI(baseUrl, apiKey, { action: "services" });
-    if (!Array.isArray(servicesData)) {
-      const message = servicesData && servicesData.error ? servicesData.error : 'Provider returned an invalid services response.';
-      throw new Error(message);
-    }
-
-    const currency = balanceData && balanceData.currency ? balanceData.currency : "$";
-    const balanceText = balanceData && balanceData.balance !== undefined
-      ? `${currency}${parseFloat(balanceData.balance).toFixed(2)}`
-      : "Balance unavailable";
-
-    const profileCatalog = groupServicesByCategory(servicesData);
-    Object.keys(profileCatalog).forEach((cat) => {
-      profileCatalog[cat].forEach((svc) => {
-        svc._baseUrl = baseUrl;
-        svc._apiKey = apiKey;
-      });
-    });
-
-    let profile = PROFILES.find((p) => p.baseUrl === baseUrl && p.apiKey === apiKey);
-    if (profile) {
-      profile.name = name;
-      profile.connected = true;
-      profile.catalog = profileCatalog;
-      profile.balanceText = balanceText;
-    } else {
-      profile = { id: `profile_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name, baseUrl, apiKey, connected: true, catalog: profileCatalog, balanceText };
-      PROFILES.push(profile);
-    }
-
-    const shouldActivate = !silent ||
-      (ACTIVE_PROFILE_ID && profile.id === ACTIVE_PROFILE_ID) ||
-      (!PANEL.connected && !ACTIVE_PROFILE_ID);
-    if (shouldActivate) setActiveProfile(profile, true);
-
-    saveProfiles();
-    renderProfilesList();
-    if (PANEL.baseUrl === baseUrl && PANEL.apiKey === apiKey) {
-      renderFetchedServices(servicesData);
-      rebuildAllCategoryDropdowns();
-      renderFixedCards();
-      refreshAutoTab();
-      connectStatusEl.textContent = `Connected "${name}" — balance and services loaded.`;
-      connectStatusEl.className = "connect-status ok";
-    }
-    addLog(`Connected to panel "${name}" at ${baseUrl}`);
-  } catch (err) {
-    if (!silent) {
-      connectStatusEl.textContent = `Couldn\'t get a valid response from that panel (${err.message}). Double-check the URL/key and try again.`;
-      connectStatusEl.className = "connect-status error";
-    }
-    addLog(`Connect failed for ${baseUrl}${silent ? " (auto-reconnect)" : ""}`);
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    const preview = responseText.slice(0, 240).replace(/\s+/g, " ");
+    throw new Error(`Proxy returned non-JSON data (HTTP ${res.status}): ${preview || res.statusText}`);
   }
+
+  const details = data && typeof data === "object" ? data.details : null;
+  const providerMessage =
+    (data && (data.error || data.message || (data.success === false && data.error_description))) ||
+    (details && typeof details === "object" && (details.error || details.message || details.msg)) ||
+    (typeof details === "string" ? details : "");
+  const failedStatus = data && typeof data.status === "string" && data.status.toLowerCase() === "error";
+
+  if (!res.ok || providerMessage || (data && data.success === false) || failedStatus) {
+    let message = providerMessage || `HTTP ${res.status} ${res.statusText}`;
+    if (typeof details === "string" && details && details !== message) message += ` — ${details}`;
+    else if (details && typeof details === "object") {
+      const detailText = details.error || details.message || details.msg;
+      if (detailText && detailText !== message) message += ` — ${detailText}`;
+    }
+    // Do not accidentally display the API key if an upstream error echoes it.
+    if (apiKey) message = message.split(apiKey).join("[redacted]");
+    throw new Error(message.slice(0, 500));
+  }
+
+  return data;
 }
 
 function mergeAllProfileCatalogs() {
