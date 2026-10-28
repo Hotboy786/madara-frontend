@@ -1699,7 +1699,9 @@ submitOrderBtn.addEventListener("click", async () => {
       orderStatusEl.textContent = `Schedule "${name}" is now running on the server (${data.scheduled} legs) — safe to close this tab, delivery continues.`;
       orderStatusEl.className = "connect-status ok";
       addLog(`Order "${name}" handed off to server scheduler (${data.scheduled} legs)`);
-      loadOrders();
+      // Refresh both server-backed views immediately; otherwise the activity
+      // table remains stale until the user manually refreshes it.
+      await Promise.all([loadOrders(), loadActivityLog()]);
     } catch (err) {
       orderStatusEl.textContent = `Couldn't hand the schedule to the server: ${err.message}`;
       orderStatusEl.className = "connect-status error";
@@ -1949,7 +1951,7 @@ function renderOrders(orders) {
         await fetch(`${PROXY_ORIGIN}/orders/${id}/${action}`, { method: "POST" });
         addLog(`${capitalize(action)}d order ${id}`);
       }
-      loadOrders();
+      await Promise.all([loadOrders(), loadActivityLog()]);
     });
   });
 }
@@ -1987,10 +1989,20 @@ function renderActivityLog(entries) {
       const time = new Date(e.timestamp).toLocaleString([], {
         month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
       });
-      const detail =
-        e.type === "connect"
-          ? "Connected"
-          : `${e.totalQuantity ? e.totalQuantity.toLocaleString() : "?"} units (${e.legCount} legs) → ${e.link || "?"}`;
+      const qty = Number(e.quantity || e.totalQuantity || 0);
+      const qtyText = qty ? qty.toLocaleString() : "?";
+      const detailByType = {
+        connect: "Connected",
+        schedule_created: `Scheduled "${e.name || "Order"}" — ${qtyText} units across ${e.legCount || "?"} legs`,
+        leg_completed: `Submitted ${qtyText} units of ${e.category || "service"}${e.providerOrderId ? ` (provider order #${e.providerOrderId})` : ""}`,
+        leg_failed: `Failed ${qtyText} units of ${e.category || "service"}: ${e.error || "provider error"}`,
+        schedule_paused: `Paused schedule ${e.orderId || ""}`,
+        schedule_resumed: `Resumed schedule ${e.orderId || ""}`,
+        schedule_deleted: `Deleted schedule "${e.name || e.orderId || ""}"`,
+        schedule_finished: `Schedule ${e.orderId || ""} finished: ${e.status || "done"}`,
+      };
+      const detail = detailByType[e.type] ||
+        `${qtyText} units (${e.legCount || "?"} legs) → ${e.link || e.orderId || "?"}`;
 
       return `
         <div class="schedule-row">
