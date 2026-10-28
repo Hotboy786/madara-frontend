@@ -244,6 +244,10 @@ tabButtons.forEach((btn) => {
     btn.classList.add("active");
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
     if (btn.dataset.tab === "logs") renderDeliveryHistory();
+    if (btn.dataset.tab === "schedules" && schedulesContent.style.display === "block") {
+      loadOrders();
+      loadActivityLog();
+    }
   });
 });
 
@@ -1705,7 +1709,8 @@ submitOrderBtn.addEventListener("click", async () => {
     } catch (err) {
       orderStatusEl.textContent = `Couldn't hand the schedule to the server: ${err.message}`;
       orderStatusEl.className = "connect-status error";
-      addLog(`Failed to schedule order "${name}" on the server`);
+      addLog(`Failed to schedule order "${name}" on the server: ${err.message}`);
+      await loadActivityLog();
     }
   } else {
     allLegsForOrder.forEach((leg) => {
@@ -1884,10 +1889,12 @@ async function loadOrders() {
   ordersListEl.innerHTML = `<div class="summary-empty">Loading...</div>`;
   try {
     const res = await fetch(`${PROXY_ORIGIN}/orders`);
-    const orders = await res.json();
-    renderOrders(orders);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data && data.error ? data.error : `HTTP ${res.status}`);
+    if (!Array.isArray(data)) throw new Error("Server returned an invalid orders response.");
+    renderOrders(data);
   } catch (err) {
-    ordersListEl.innerHTML = `<div class="summary-empty">Couldn't reach the server: ${err.message}</div>`;
+    ordersListEl.innerHTML = `<div class="summary-empty">Couldn't load scheduled orders: ${err.message}</div>`;
   }
 }
 
@@ -1909,10 +1916,10 @@ function renderOrders(orders) {
         ? new Date(order.nextFireAt).toLocaleString([], { month: "numeric", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
         : "—";
 
-      const isCompleted = order.status === "completed";
+      const isFinished = ["completed", "failed"].includes(order.status);
       const isPaused = order.status === "paused";
 
-      const playPauseBtn = isCompleted
+      const playPauseBtn = isFinished
         ? ""
         : isPaused
         ? `<button class="order-action-btn play" data-action="resume" data-id="${order.id}" title="Resume">▶</button>`
@@ -1994,6 +2001,7 @@ function renderActivityLog(entries) {
       const detailByType = {
         connect: "Connected",
         schedule_created: `Scheduled "${e.name || "Order"}" — ${qtyText} units across ${e.legCount || "?"} legs`,
+        schedule_rejected: `Rejected "${e.name || "Order"}" — ${e.error || "request validation failed"}`,
         leg_completed: `Submitted ${qtyText} units of ${e.category || "service"}${e.providerOrderId ? ` (provider order #${e.providerOrderId})` : ""}`,
         leg_failed: `Failed ${qtyText} units of ${e.category || "service"}: ${e.error || "provider error"}`,
         schedule_paused: `Paused schedule ${e.orderId || ""}`,
