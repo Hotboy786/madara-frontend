@@ -383,9 +383,18 @@ async function attemptConnect(name, baseUrl, apiKey, silent) {
 
   try {
     const balanceData = await callPanelAPI(baseUrl, apiKey, { action: "balance" });
-    const servicesData = await callPanelAPI(baseUrl, apiKey, { action: "services" });
+    const servicesResponse = await callPanelAPI(baseUrl, apiKey, { action: "services" });
+    // Organic SMM returns { status: "ok", services: [...] }; traditional panels
+    // often return the services as a raw array. Accept both response shapes.
+    const servicesData = Array.isArray(servicesResponse)
+      ? servicesResponse
+      : (servicesResponse && Array.isArray(servicesResponse.services)
+        ? servicesResponse.services
+        : null);
     if (!Array.isArray(servicesData)) {
-      const message = servicesData && servicesData.error ? servicesData.error : 'Provider returned an invalid services response.';
+      const message = servicesResponse && (servicesResponse.error || servicesResponse.message)
+        ? (servicesResponse.error || servicesResponse.message)
+        : 'Provider returned an invalid services response.';
       throw new Error(message);
     }
 
