@@ -429,37 +429,61 @@ function renderProfilesList() {
   const el = document.getElementById("profilesList");
   if (!el) return;
   if (PROFILES.length === 0) {
-    el.innerHTML = `<div class="summary-empty">No panels saved yet — connect one above.</div>`;
+    el.innerHTML = '<div class="summary-empty">No panels saved yet — connect one above.</div>';
     return;
   }
-  el.innerHTML = PROFILES.map(
-    (p) => `
-    <div class="profile-row">
-      <div>
-        <b>${p.name}</b>
-        <span class="profile-url">${p.baseUrl}</span>
-        ${p.balanceText ? `<span class="profile-balance">${p.balanceText}</span>` : ""}
-      </div>
-      <button class="profile-remove-btn" data-id="${p.id}">Remove</button>
-    </div>
-  `
-  ).join("");
+
+  el.innerHTML = PROFILES.map((p) =>
+    '<div class="profile-row">' +
+      '<div class="profile-details"><b>' + escapeHtml(p.name) + '</b>' +
+      '<span class="profile-url">' + escapeHtml(p.baseUrl) + '</span>' +
+      '<span class="profile-balance">' + escapeHtml(p.balanceText || "Balance unavailable") + '</span></div>' +
+      '<button class="profile-remove-btn" data-id="' + escapeHtml(p.id) + '" type="button">Remove</button>' +
+    '</div>'
+  ).join('');
 
   el.querySelectorAll(".profile-remove-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
+      const removedProfile = PROFILES.find((p) => p.id === btn.dataset.id);
+      if (!removedProfile) return;
+
+      const removedActivePanel =
+        PANEL.baseUrl === removedProfile.baseUrl && PANEL.apiKey === removedProfile.apiKey;
       PROFILES = PROFILES.filter((p) => p.id !== btn.dataset.id);
+
+      // When removing the active provider, switch to a remaining saved profile.
+      if (removedActivePanel) {
+        const replacement = [...PROFILES].reverse().find((p) => p.connected);
+        if (replacement) {
+          PANEL = { baseUrl: replacement.baseUrl, apiKey: replacement.apiKey, connected: true };
+          balanceValueEl.textContent = replacement.balanceText || "—";
+          renderFetchedServices(Object.values(replacement.catalog || {}).flat().map((svc) => ({
+            service: svc.id, name: svc.name, rate: svc.rate
+          })));
+        } else {
+          PANEL = { baseUrl: "", apiKey: "", connected: false };
+          balanceValueEl.textContent = "—";
+          fetchedServicesListEl.innerHTML =
+            '<div class="summary-empty">No panel connected — connect a panel above.</div>';
+        }
+      }
+
       CATALOG = mergeAllProfileCatalogs();
-      PANEL.connected = PROFILES.length > 0;
       saveProfiles();
       renderProfilesList();
       rebuildAllCategoryDropdowns();
       renderFixedCards();
       refreshAutoTab();
-      addLog(`Removed saved panel`);
+      addLog("Removed saved panel " + removedProfile.name);
     });
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>\"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char]);
+}
 function groupServicesByCategory(list) {
   const groups = {};
   list.forEach((svc) => {
