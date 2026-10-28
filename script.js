@@ -61,6 +61,8 @@ let PROFILES = []; // [{ id, name, baseUrl, apiKey, connected, catalog }]
 let PANEL = { baseUrl: "", apiKey: "", connected: false }; // "primary" profile — used by Manual tab
 
 const PROFILES_KEY = "madara_panel_profiles";
+const ACTIVE_PROFILE_KEY = "madara_panel_active_profile";
+let ACTIVE_PROFILE_ID = (() => { try { return localStorage.getItem(ACTIVE_PROFILE_KEY) || ""; } catch { return ""; } })();
 
 function saveProfiles() {
   try {
@@ -356,58 +358,54 @@ async function attemptConnect(name, baseUrl, apiKey, silent) {
   try {
     const balanceData = await callPanelAPI(baseUrl, apiKey, { action: "balance" });
     const servicesData = await callPanelAPI(baseUrl, apiKey, { action: "services" });
-
-    let balanceText = "";
-    if (balanceData && balanceData.balance !== undefined) {
-      const currency = balanceData.currency || "$";
-      balanceText = `${currency}${parseFloat(balanceData.balance).toFixed(2)}`;
-      balanceValueEl.textContent = balanceText;
+    if (!Array.isArray(servicesData)) {
+      const message = servicesData && servicesData.error ? servicesData.error : 'Provider returned an invalid services response.';
+      throw new Error(message);
     }
 
-    let profileCatalog = {};
-    if (Array.isArray(servicesData)) {
-      profileCatalog = groupServicesByCategory(servicesData);
-      Object.keys(profileCatalog).forEach((cat) => {
-        profileCatalog[cat].forEach((svc) => {
-          svc._baseUrl = baseUrl;
-          svc._apiKey = apiKey;
-        });
+    const currency = balanceData && balanceData.currency ? balanceData.currency : "$";
+    const balanceText = balanceData && balanceData.balance !== undefined
+      ? `${currency}${parseFloat(balanceData.balance).toFixed(2)}`
+      : "Balance unavailable";
+
+    const profileCatalog = groupServicesByCategory(servicesData);
+    Object.keys(profileCatalog).forEach((cat) => {
+      profileCatalog[cat].forEach((svc) => {
+        svc._baseUrl = baseUrl;
+        svc._apiKey = apiKey;
       });
-    }
+    });
 
-    const existing = PROFILES.find((p) => p.baseUrl === baseUrl && p.apiKey === apiKey);
-    if (existing) {
-      existing.name = name;
-      existing.connected = true;
-      existing.catalog = profileCatalog;
-      existing.balanceText = balanceText;
+    let profile = PROFILES.find((p) => p.baseUrl === baseUrl && p.apiKey === apiKey);
+    if (profile) {
+      profile.name = name;
+      profile.connected = true;
+      profile.catalog = profileCatalog;
+      profile.balanceText = balanceText;
     } else {
-      PROFILES.push({
-        id: `profile_${Date.now()}`,
-        name,
-        baseUrl,
-        apiKey,
-        connected: true,
-        catalog: profileCatalog,
-        balanceText,
-      });
+      profile = { id: `profile_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name, baseUrl, apiKey, connected: true, catalog: profileCatalog, balanceText };
+      PROFILES.push(profile);
     }
 
-    PANEL = { baseUrl, apiKey, connected: true };
-    CATALOG = mergeAllProfileCatalogs();
-    renderFetchedServices(servicesData || []);
-    rebuildAllCategoryDropdowns();
+    const shouldActivate = !silent ||
+      (ACTIVE_PROFILE_ID && profile.id === ACTIVE_PROFILE_ID) ||
+      (!PANEL.connected && !ACTIVE_PROFILE_ID);
+    if (shouldActivate) setActiveProfile(profile, true);
+
     saveProfiles();
     renderProfilesList();
-    renderFixedCards();
-    refreshAutoTab();
-
-    connectStatusEl.textContent = `Connected "${name}" — balance and services loaded.`;
-    connectStatusEl.className = "connect-status ok";
+    if (PANEL.baseUrl === baseUrl && PANEL.apiKey === apiKey) {
+      renderFetchedServices(servicesData);
+      rebuildAllCategoryDropdowns();
+      renderFixedCards();
+      refreshAutoTab();
+      connectStatusEl.textContent = `Connected "${name}" — balance and services loaded.`;
+      connectStatusEl.className = "connect-status ok";
+    }
     addLog(`Connected to panel "${name}" at ${baseUrl}`);
   } catch (err) {
     if (!silent) {
-      connectStatusEl.textContent = `Couldn't get a valid response from that panel (${err.message}). Double-check the URL/key and try again — sometimes the proxy just needs a retry.`;
+      connectStatusEl.textContent = `Couldn\'t get a valid response from that panel (${err.message}). Double-check the URL/key and try again.`;
       connectStatusEl.className = "connect-status error";
     }
     addLog(`Connect failed for ${baseUrl}${silent ? " (auto-reconnect)" : ""}`);
@@ -425,38 +423,102 @@ function mergeAllProfileCatalogs() {
   return Object.keys(merged).length > 0 ? merged : DEMO_CATALOG;
 }
 
+function setActiveProfile(profile, updateInputs = true) {
+  if (!profile) return;
+  PANEL = { baseUrl: profile.baseUrl, apiKey: profile.apiKey, connected: Boolean(profile.connected) };
+  ACTIVE_PROFILE_ID = profile.id;
+  try { localStorage.setItem(ACTIVE_PROFILE_KEY, ACTIVE_PROFILE_ID); } catch {}
+  CATALOG = profile.connected && Object.keys(profile.catalog || {}).length ? profile.catalog : DEMO_CATALOG;
+  balanceValueEl.textContent = profile.balanceText || "—";
+  if (updateInputs) {
+    document.getElementById("profileNameInput").value = profile.name || "";
+    apiBaseUrlInput.value = profile.baseUrl || '';
+    apiKeyInputEl.value = profile.apiKey || '';
+  }
+  const services = Object.values(profile.catalog || {}).flat().map((svc) => ({ service: svc.id, name: svc.name, rate: svc.rate }));
+  renderFetchedServices(services);
+}
+
 function renderProfilesList() {
   const el = document.getElementById("profilesList");
   if (!el) return;
+  el.replaceChildren();
   if (PROFILES.length === 0) {
-    el.innerHTML = `<div class="summary-empty">No panels saved yet — connect one above.</div>`;
+    const empty = document.createElement("div");
+    empty.className = "summary-empty";
+    empty.textContent = "No panels saved yet — connect one above.";
+    el.appendChild(empty);
     return;
   }
-  el.innerHTML = PROFILES.map(
-    (p) => `
-    <div class="profile-row">
-      <div>
-        <b>${p.name}</b>
-        <span class="profile-url">${p.baseUrl}</span>
-        ${p.balanceText ? `<span class="profile-balance">${p.balanceText}</span>` : ""}
-      </div>
-      <button class="profile-remove-btn" data-id="${p.id}">Remove</button>
-    </div>
-  `
-  ).join("");
 
-  el.querySelectorAll(".profile-remove-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      PROFILES = PROFILES.filter((p) => p.id !== btn.dataset.id);
-      CATALOG = mergeAllProfileCatalogs();
-      PANEL.connected = PROFILES.length > 0;
+  PROFILES.forEach((profile) => {
+    const row = document.createElement("div");
+    row.className = "profile-row";
+    const details = document.createElement("div");
+    details.className = "profile-details";
+    const name = document.createElement("b");
+    name.textContent = profile.name || "Unnamed panel";
+    const url = document.createElement("span");
+    url.className = "profile-url";
+    url.textContent = profile.baseUrl;
+    const balance = document.createElement("span");
+    balance.className = "profile-balance";
+    balance.textContent = profile.connected ? (profile.balanceText || "Balance unavailable") : "Not connected";
+    details.append(name, url, balance);
+    const actions = document.createElement("div");
+    actions.className = "profile-actions";
+    const useButton = document.createElement("button");
+    useButton.type = "button";
+    useButton.className = "profile-use-btn";
+    const isActive = PANEL.baseUrl === profile.baseUrl && PANEL.apiKey === profile.apiKey && PANEL.connected;
+    useButton.textContent = isActive ? "Active" : "Use";
+    useButton.disabled = isActive || !profile.connected;
+    useButton.addEventListener("click", () => {
+      setActiveProfile(profile, true);
+      renderProfilesList();
+      rebuildAllCategoryDropdowns();
+      renderFixedCards();
+      refreshAutoTab();
+      connectStatusEl.textContent = `Using "${profile.name}" — ${profile.balanceText || "balance unavailable"}.`;
+      connectStatusEl.className = "connect-status ok";
+      addLog(`Switched active panel to "${profile.name}"`);
+    });
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "profile-remove-btn";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => {
+      const removedActive = PANEL.baseUrl === profile.baseUrl && PANEL.apiKey === profile.apiKey;
+      PROFILES = PROFILES.filter((item) => item.id !== profile.id);
+      if (removedActive) {
+        const replacement = [...PROFILES].reverse().find((item) => item.connected);
+        if (replacement) {
+          setActiveProfile(replacement, true);
+        } else {
+          PANEL = { baseUrl: "", apiKey: "", connected: false };
+          ACTIVE_PROFILE_ID = "";
+          try { localStorage.removeItem(ACTIVE_PROFILE_KEY); } catch {}
+          CATALOG = DEMO_CATALOG;
+          balanceValueEl.textContent = "—";
+          apiBaseUrlInput.value = "";
+          apiKeyInputEl.value = "";
+          fetchedServicesListEl.textContent = "No panel connected — connect a panel above.";
+        }
+      }
+      if (!removedActive) {
+        const active = PROFILES.find((item) => item.baseUrl === PANEL.baseUrl && item.apiKey === PANEL.apiKey);
+        if (active) CATALOG = active.catalog || DEMO_CATALOG;
+      }
       saveProfiles();
       renderProfilesList();
       rebuildAllCategoryDropdowns();
       renderFixedCards();
       refreshAutoTab();
-      addLog(`Removed saved panel`);
+      addLog(`Removed saved panel "${profile.name}"`);
     });
+    actions.append(useButton, removeButton);
+    row.append(details, actions);
+    el.appendChild(row);
   });
 }
 
@@ -1937,9 +1999,23 @@ pruneOldHistory();
 addLog("Session started");
 
 const savedProfiles = loadProfilesFromStorage();
-savedProfiles.forEach((p) => {
-  attemptConnect(p.name, p.baseUrl, p.apiKey, true);
-});
+PROFILES = savedProfiles.map((profile) => ({ ...profile, connected: false, catalog: {}, balanceText: "" }));
+renderProfilesList();
+(async function restoreSavedProfiles() {
+  for (const profile of savedProfiles) {
+    await attemptConnect(profile.name, profile.baseUrl, profile.apiKey, true);
+  }
+  let active = PROFILES.find((profile) => profile.id === ACTIVE_PROFILE_ID && profile.connected);
+  if (!active) active = PROFILES.find((profile) => profile.connected);
+  if (active) {
+    setActiveProfile(active, false);
+    saveProfiles();
+    renderProfilesList();
+    rebuildAllCategoryDropdowns();
+    renderFixedCards();
+    refreshAutoTab();
+  }
+})();
 
 // ==========================================
 // GROWTH GRAPH — hover tooltip
