@@ -1089,3 +1089,15 @@ input[type="range"].randomness::-moz-range-thumb{
   .graph-select-row{ flex-direction: column; }
 }
  
+
+/* Saved SMM provider profiles */
+.profiles-list { display: grid; gap: 10px; }
+.profile-help { color: var(--muted); font-size: 0.82rem; margin: 0 0 12px; }
+.profile-row { gap: 12px; }
+.profile-details { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.profile-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
+.profile-use-btn, .profile-remove-btn { min-height: 30px; }
+.profile-use-btn { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 7px; padding: 5px 12px; font-size: 0.76rem; cursor: pointer; }
+.profile-use-btn:disabled { opacity: 0.65; cursor: default; }
+.profile-remove-btn:disabled { opacity: 0.65; cursor: default; }
+@media (max-width: 520px) { .profile-row { align-items: flex-start; flex-direction: column; } .profile-actions { width: 100%; justify-content: flex-end; } }
