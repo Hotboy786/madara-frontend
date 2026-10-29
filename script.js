@@ -1035,7 +1035,7 @@ function refreshAutoTab() {
   if (viewsNoteEl) {
     viewsNoteEl.textContent =
       viewsPool.length > 1
-        ? `🔀 Auto round-robin across ${viewsPool.length} connected services: ${viewsPool.map((s) => s.name).join(", ")}`
+        ? `🔀 Auto round-robin across ${viewsPool.length} connected services`
         : viewsPool.length === 1
         ? `Using: ${viewsPool[0].name}`
         : "";
