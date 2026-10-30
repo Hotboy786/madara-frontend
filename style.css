@@ -1,5 +1,5 @@
 :root {
-  --bg: #00000;
+  --bg: #000000;
   --bg-glow: radial-gradient(ellipse 900px 500px at 50% -10%, rgba(34, 197, 94, 0.15), transparent 60%);
   --panel: #1b1a19;
   --panel-2: #1c0f12;
