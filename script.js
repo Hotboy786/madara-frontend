@@ -243,7 +243,7 @@ tabButtons.forEach((btn) => {
     panels.forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
-    if (btn.dataset.tab === "logs") renderDeliveryHistory();
+    if (btn.dataset.tab === "logs") { renderDeliveryHistory(); renderLegRequestLog(); }
     if (btn.dataset.tab === "schedules" && schedulesContent.style.display === "block") {
       loadOrders();
       loadActivityLog();
@@ -1055,7 +1055,16 @@ function refreshAutoTab() {
     const legsCount = Math.max(1, Math.min(250, Math.round((effectiveQty / 1000) * VIEWS_LEGS_PER_1000)));
     totalMinutes = Math.ceil(gapRange.min * legsCount * 1.3);
 
-    viewsLegs = generateAutoLegs(effectiveQty, legsCount, totalMinutes, GAP_MODE, viewsMinQty);
+    try {
+      const signature=JSON.stringify([effectiveQty,totalMinutes,GAP_MODE,viewsMinQty,viewsPool.map(s=>s.id)]);
+      if(window._boundedAutoSignature!==signature) {
+        window._boundedAutoPlan=generateBoundedViewLegs(effectiveQty,totalMinutes/60,viewsMinQty,GAP_MODE==='manual'?0:22,Array(20).fill(50));
+        window._boundedAutoSignature=signature;
+      }
+      viewsLegs=window._boundedAutoPlan.map(l=>({...l}));
+    } catch(error) {
+      document.getElementById("minWarn-views").textContent=error.message;
+    }
     const assigned = assignRoundRobin(viewsPool, viewsLegs.length);
     viewsLegs = viewsLegs.map((l, i) => ({ ...l, serviceLabel: "Views", category: "views", serviceId: assigned[i].id, baseUrl: assigned[i]._baseUrl, apiKey: assigned[i]._apiKey }));
   }
@@ -1264,6 +1273,35 @@ function resampleCurve(points, targetCount) {
   return result;
 }
 
+
+function generateBoundedViewLegs(quantity, durationHours, minQty, randomness, curvePoints) {
+  if (!quantity) return [];
+  const lower=Math.max(100,minQty), upper=115;
+  const least=Math.ceil(quantity/upper), most=Math.floor(quantity/lower);
+  if(lower>upper || least>most || least>2000) {
+    throw new Error('Cannot split this total into 100–115-view batches with the selected service minimum. Adjust quantity or service.');
+  }
+  const count=least+Math.floor(Math.random()*(Math.min(most,2000)-least+1));
+  let remaining=quantity;
+  const amounts=Array.from({length:count},(_,i)=>{
+    const left=count-i-1;
+    const lo=Math.max(lower,remaining-left*upper);
+    const hi=Math.min(upper,remaining-left*lower);
+    const amount=lo+Math.floor(Math.random()*(hi-lo+1));
+    remaining-=amount;
+    return amount;
+  });
+  // Curve controls relative spacing; bounded jitter keeps request times ordered.
+  const weights=resampleCurve(curvePoints,count).map(w=>Math.max(1,w));
+  const gaps=weights.slice(1).map(w=>(1/w)*(1+(Math.random()*2-1)*Math.min(randomness,40)/100));
+  const sum=gaps.reduce((a,b)=>a+b,0)||1;
+  let elapsed=0;
+  return amounts.map((amount,i)=>{
+    if(i) elapsed+=gaps[i-1]/sum*durationHours*60;
+    return {index:i+1,amount,minutesAt:elapsed};
+  });
+}
+
 function generateLegs(quantity, durationHours, randomness, curvePoints, minQty) {
   let legs = [];
 
@@ -1368,13 +1406,27 @@ function updateCardPreview(card) {
   let legs;
   let syncInfo = null;
 
-  if (!isFirstCard && referenceCard && referenceCard._lastLegs && referenceCard._lastLegs.length > 0) {
+  if (category !== 'views' && !isFirstCard && referenceCard && referenceCard._lastLegs && referenceCard._lastLegs.length > 0) {
     const result = generateSyncedLegsWithReduction(quantity, minQty, referenceCard._lastLegs);
     legs = result.legs;
     syncInfo = result;
   } else {
     const curvePoints = getCurveForCard(card);
-    legs = generateLegs(quantity, durationHours, randomness, curvePoints, minQty);
+    if(category === 'views') {
+      try {
+        const signature=JSON.stringify([quantity,durationHours,randomness,curvePoints,minQty,card.dataset.selectedServiceId]);
+        if(card._viewPlanSignature!==signature) {
+          card._boundedViewPlan=generateBoundedViewLegs(quantity,durationHours,minQty,randomness,curvePoints);
+          card._viewPlanSignature=signature;
+        }
+        legs=card._boundedViewPlan.map(l=>({...l}));
+      } catch(error) {
+        qtyWarningEl.textContent=error.message;
+        legs=[];
+      }
+    } else {
+      legs = generateLegs(quantity, durationHours, randomness, curvePoints, minQty);
+    }
   }
 
   const selectedServiceId = String(card.dataset.selectedServiceId || "");
@@ -1683,6 +1735,10 @@ submitOrderBtn.addEventListener("click", async () => {
     });
   }
 
+  if (!allLegsForOrder.length) {
+    orderStatusEl.textContent = "No valid legs. Check quantities and selected service minimums.";
+    return;
+  }
   allLegsForOrder.forEach((leg) => {
     const fireAtClock = new Date(Date.now() + leg.fireInMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     addLog(`Queued ${leg.quantity.toLocaleString()} ${leg.serviceLabel} for ${fireAtClock}`);
@@ -2000,9 +2056,13 @@ function renderActivityLog(entries) {
       const qtyText = qty ? qty.toLocaleString() : "?";
       const detailByType = {
         connect: "Connected",
+        leg_planned: `Planned leg ${e.legId}: ${qtyText} ${e.category || "units"} at ${new Date(e.scheduledAt).toLocaleString()}`,
+        leg_submitted: `Requested leg ${e.legId}: ${qtyText} ${e.category || "units"} — provider #${e.providerOrderId}; waiting for completion`,
+        leg_status: `Leg ${e.legId}: ${e.providerStatus}`,
+        leg_status_error: `Leg ${e.legId}: ${e.error}`,
         schedule_created: `Scheduled "${e.name || "Order"}" — ${qtyText} units across ${e.legCount || "?"} legs`,
         schedule_rejected: `Rejected "${e.name || "Order"}" — ${e.error || "request validation failed"}`,
-        leg_completed: `Submitted ${qtyText} units of ${e.category || "service"}${e.providerOrderId ? ` (provider order #${e.providerOrderId})` : ""}`,
+        leg_completed: `Completed ${qtyText} units of ${e.category || "service"}${e.providerOrderId ? ` (provider order #${e.providerOrderId})` : ""}`,
         leg_failed: `Failed ${qtyText} units of ${e.category || "service"}: ${e.error || "provider error"}`,
         schedule_paused: `Paused schedule ${e.orderId || ""}`,
         schedule_resumed: `Resumed schedule ${e.orderId || ""}`,
@@ -2135,3 +2195,24 @@ growthSvgEl.addEventListener("mouseleave", () => {
 createServiceSlot();
 renderFixedCards();
 setOrderMode("auto");
+
+function escapeLog(value) {
+  return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+async function renderLegRequestLog() {
+  let el=document.getElementById('legRequestLog');
+  if(!el) {
+    el=document.createElement('div');el.id='legRequestLog';
+    document.getElementById('deliveryHistoryList').before(el);
+  }
+  const date=v=>v?new Date(v).toLocaleString():'—';
+  try {
+    const res=await fetch(PROXY_ORIGIN+'/orders');
+    if(!res.ok) throw new Error();
+    const orders=await res.json();
+    el.innerHTML='<h3>Batch request schedule</h3><p>Planned times are earliest request times. Each leg waits for the previous leg to complete. Times use your browser timezone.</p><button id="refreshLegLog" class="tab-btn">Refresh batches</button>'+
+      orders.map(o=>'<h4>'+escapeLog(o.name)+'</h4><div style="overflow-x:auto"><table><thead><tr><th>Leg</th><th>Service</th><th>Quantity</th><th>Planned request</th><th>Actually requested</th><th>Completed</th><th>Status</th><th>Provider order</th></tr></thead><tbody>'+
+      (o.legs||[]).map(l=>'<tr>'+[l.id,l.category,l.quantity,date(l.scheduledAt),date(l.requestedAt),date(l.completedAt),l.status+(l.providerStatus?' / '+l.providerStatus:'')+(l.error?' / '+l.error:''),l.providerOrderId||'—'].map(v=>'<td style="padding:8px">'+escapeLog(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>').join('');
+    document.getElementById('refreshLegLog').onclick=renderLegRequestLog;
+  } catch { el.textContent='Unable to load batch request schedule. Reopen Logs to retry.'; }
+}
