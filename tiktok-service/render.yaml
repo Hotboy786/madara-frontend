@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: tiktok-account-studio
+    rootDir: tiktok-service
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PROFILE_ENCRYPTION_KEY
+        sync: false
+      - key: ALLOWED_EMAILS
+        sync: false
+      - key: ALLOWED_EMBED_ORIGINS
+        sync: false
