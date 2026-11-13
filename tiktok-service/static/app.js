@@ -4,6 +4,24 @@ const client = crypto.randomUUID();
 let token = '', refreshToken = '', refreshAt = 0, refreshPromise;
 let accounts = [], active = null, filter = '', mode = 'add', busy = false, imageURL = '', toastTimer, frameTimer, streamGeneration = 0;
 let embeddedVisible = true;
+let blockedAccount = null;
+const takeoverButton = document.createElement('button');
+takeoverButton.id = 'takeover'; takeoverButton.className = 'secondary';
+takeoverButton.textContent = 'Take control'; takeoverButton.hidden = true;
+$('#save').after(takeoverButton);
+function blocked(id, error) {
+  if (error.status !== 409) return;
+  blockedAccount = id; takeoverButton.hidden = false;
+}
+document.addEventListener('visibilitychange', () => {
+  streamGeneration++; clearTimeout(frameTimer);
+  if (!document.hidden && active && !busy) pollFrame();
+});
+window.addEventListener('pagehide', () => {
+  streamGeneration++; clearTimeout(frameTimer);
+  if (token) fetch('/api/release', {method:'POST',keepalive:true,
+    headers:{'Authorization':'Bearer '+token,'X-Client-ID':client}}).catch(() => {});
+});
 window.addEventListener('message', event => {
   if (window.parent === window || event.source !== window.parent || event.data?.type !== 'madara-tiktok-visibility') return;
   embeddedVisible = event.data.visible === true;
@@ -38,27 +56,31 @@ function render() {
   $('#edit').disabled = !row;
 }
 function controls(enabled) { document.querySelectorAll('[data-nav],#save').forEach(b => b.disabled = !enabled); $('#inputbar').hidden = !enabled; }
-async function selectAccount(id) {
+async function selectAccount(id, takeControl = false) {
   if (busy) return; busy = true; streamGeneration++; clearTimeout(frameTimer); controls(false); $('#status').textContent = 'Opening profile…';
   $('#screen').hidden = true; $('#empty').hidden = false; $('#empty').textContent = 'Saving previous profile and opening this account…';
   try {
-    await api('open', {id}); active = id; await loadAccounts(); $('#empty').hidden = true; controls(true); $('#screen').hidden = false; $('#status').textContent = 'Browser open · login status not checked'; await pollFrame();
-  } catch (e) { active = null; render(); $('#status').textContent = 'Could not open'; $('#empty').textContent = e.message; toast(e.message); }
+    await api(takeControl ? 'takeover' : 'open', {id}); active = id; blockedAccount = null; takeoverButton.hidden = true; await loadAccounts(); $('#empty').hidden = true; controls(true); $('#screen').hidden = false; $('#status').textContent = 'Browser open · login status not checked'; await pollFrame();
+  } catch (e) { blocked(id, e); active = null; render(); $('#status').textContent = 'Could not open'; $('#empty').textContent = e.message; toast(e.message); }
   finally { busy = false; }
 }
 async function pollFrame(generation = streamGeneration) {
-  if (!active || !token || !embeddedVisible) return;
+  if (!active || !token || !embeddedVisible || document.hidden) return;
   const id = active;
   try {
     const blob = await api('frame/' + id, undefined, true); if (active !== id || generation !== streamGeneration || !embeddedVisible) return;
     const next = URL.createObjectURL(blob); $('#screen').src = next; if (imageURL) URL.revokeObjectURL(imageURL); imageURL = next;
   } catch(e) {
     if (generation !== streamGeneration) return;
-    if (e.status === 409 || e.status === 401) { active = null; controls(false); $('#screen').hidden = true; $('#empty').hidden = false; $('#empty').textContent = e.message; render(); toast(e.message); return; }
+    if (e.status === 409 || e.status === 401) { blocked(id, e); active = null; controls(false); $('#screen').hidden = true; $('#empty').hidden = false; $('#empty').textContent = e.message; render(); toast(e.message); return; }
     $('#status').textContent = 'Connection interrupted · retrying';
   }
   if (generation === streamGeneration) frameTimer = setTimeout(() => pollFrame(generation), document.hidden ? 8000 : 1600);
 }
+takeoverButton.onclick = () => {
+  if (!blockedAccount || busy) return;
+  if (window.confirm('Take control of the shared browser? The other tab or person will lose control. TikTok will remain signed in.')) selectAccount(blockedAccount, true);
+};
 async function action(data) {
   if (!active || busy) return;
   try { await api('action', {id:active,...data}); } catch(e) { toast(e.message); }

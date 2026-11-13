@@ -112,12 +112,12 @@ class Browser:
         self.playwright = None
         self.dns_cache = {}
 
-    def claim(self, user, client):
+    def claim(self, user, client, *, takeover=False):
         if not client or len(client) > 80:
             raise HTTPException(400, 'Missing browser client ID')
         identity = (user['id'], client)
         now = time.monotonic()
-        if self.holder and self.holder != identity and now < self.lease_until:
+        if not takeover and self.holder and self.holder != identity and now < self.lease_until:
             raise HTTPException(409, 'The browser is being used in another panel. Ask them to release it, or wait 90 seconds after they disconnect.')
         self.holder = identity
         self.lease_until = now + 90
@@ -377,6 +377,27 @@ async def frame(ident: str, request: Request):
         browser.current(ident)
         image = await browser.frame()
     return Response(image, media_type='image/jpeg')
+
+@app.post('/api/takeover')
+async def takeover(request: Request):
+    identity = await user(request)
+    ident = account_id((await body(request)).get('id'))
+    browser = app.state.browser
+    row = await app.state.store.account(ident)
+    async with browser.lock:
+        browser.claim(identity, request.headers.get('X-Client-ID'), takeover=True)
+        await browser.open(row)
+    return {'id': ident}
+
+@app.post('/api/release')
+async def release(request: Request):
+    identity = await user(request)
+    browser = app.state.browser
+    async with browser.lock:
+        if browser.holder == (identity['id'], request.headers.get('X-Client-ID')):
+            browser.holder = None
+            browser.lease_until = 0
+    return {'ok': True}
 
 @app.post('/api/action')
 async def action(request: Request):

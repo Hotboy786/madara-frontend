@@ -54,6 +54,17 @@ class VaultTests(unittest.TestCase):
                 unpack_profile(Fernet(key).encrypt(buffer.getvalue()), Path(tmp), key.decode())
 
 class BrowserTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_takeover_blocks_previous_tab_without_closing_browser(self):
+        browser = module.Browser(None)
+        existing_context = object()
+        browser.context = existing_context
+        browser.claim({'id':'owner'}, 'old-tab')
+        browser.claim({'id':'owner'}, 'new-tab', takeover=True)
+        self.assertEqual(browser.holder, ('owner','new-tab'))
+        self.assertIs(browser.context, existing_context)
+        with self.assertRaises(HTTPException):
+            browser.claim({'id':'owner'}, 'old-tab')
+
     async def test_control_lease(self):
         browser = module.Browser(None)
         browser.claim({'id':'one'}, 'tab-one')
