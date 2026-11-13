@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="tiktok-accounts.css">
   <link rel="stylesheet" href="gate.css">
 </head>
 <body>
@@ -32,6 +33,7 @@
     <button class="tab-btn" data-tab="tracker">📡 Tracker</button>
     <button class="tab-btn" data-tab="schedules">📅 Schedules</button>
     <button class="tab-btn" data-tab="logs">🧾 Logs</button>
+    <button class="tab-btn" data-tab="tiktok">🎵 TikTok Accounts</button>
   </nav>
 
   <main class="content">
@@ -244,6 +246,17 @@
       <div id="deliveryHistoryList" class="logs-list"></div>
     </section>
 
+    <!-- Independent TikTok browser workspace; existing panels are unchanged. -->
+    <section class="panel" id="tab-tiktok">
+      <div class="panel-head"><h1>TikTok Accounts</h1><p>Add and switch your saved TikTok accounts in a shared browser workspace.</p></div>
+      <div class="api-card tt-setup">
+        <label for="tt-service-url" class="field-label">TikTok workspace service URL</label>
+        <div class="tt-connect-row"><input id="tt-service-url" class="input full" type="url" placeholder="https://your-tiktok-service.onrender.com" autocomplete="url"><button id="tt-connect" class="submit-btn" type="button">Open workspace</button></div>
+        <p class="profile-help">This optional service handles TikTok sessions separately. Your existing panel works without it. Save and release your TikTok profile before leaving this tab.</p>
+        <p id="tt-message" role="status"></p>
+      </div>
+      <iframe id="tt-workspace" title="Shared TikTok account workspace" hidden referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+    </section>
   </main>
 </div>
 
@@ -337,6 +350,7 @@
 </template>
 
 <script src="script.js"></script>
+<script src="tiktok-accounts.js"></script>
   <script src="gate.js"></script>
 </body>
 </html>
