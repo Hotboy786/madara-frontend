@@ -5,6 +5,11 @@ let token = '', refreshToken = '', refreshAt = 0, refreshPromise;
 let accounts = [], active = null, filter = '', mode = 'add', busy = false, imageURL = '', toastTimer, frameTimer, streamGeneration = 0;
 let embeddedVisible = true;
 let blockedAccount = null;
+let failedFrames = 0, reconnectAccount = null;
+const reconnectButton = document.createElement('button');
+reconnectButton.className = 'secondary'; reconnectButton.textContent = 'Reconnect browser';
+reconnectButton.hidden = true; $('#save').after(reconnectButton);
+reconnectButton.onclick = () => { if (reconnectAccount && !busy) selectAccount(reconnectAccount, false, true); };
 const takeoverButton = document.createElement('button');
 takeoverButton.id = 'takeover'; takeoverButton.className = 'secondary';
 takeoverButton.textContent = 'Take control'; takeoverButton.hidden = true;
@@ -40,8 +45,8 @@ async function refresh() {
 }
 async function api(path, data, raw = false) {
   await refresh();
-  const response = await fetch('/api/' + path, { method:data === undefined ? 'GET':'POST', headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json','X-Client-ID':client}, ...(data === undefined ? {} : {body:JSON.stringify(data)}) });
-  if (!response.ok) { const value = await response.json().catch(() => ({})); const error = Error(value.detail || 'Request failed'); error.status = response.status; throw error; }
+  const response = await fetch('/api/' + path, { signal:AbortSignal.timeout(raw ? 30000 : 90000), method:data === undefined ? 'GET':'POST', headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json','X-Client-ID':client}, ...(data === undefined ? {} : {body:JSON.stringify(data)}) });
+  if (!response.ok) { const value = await response.json().catch(() => ({})); const error = Error(value.detail || ('The cloud server could not complete this request (HTTP ' + response.status + '). Retry or reconnect the browser.')); error.status = response.status; throw error; }
   return raw ? response.blob() : response.json();
 }
 async function loadAccounts() {
@@ -56,12 +61,12 @@ function render() {
   $('#edit').disabled = !row;
 }
 function controls(enabled) { document.querySelectorAll('[data-nav],#save').forEach(b => b.disabled = !enabled); $('#inputbar').hidden = !enabled; }
-async function selectAccount(id, takeControl = false) {
+async function selectAccount(id, takeControl = false, reconnect = false) {
   if (busy) return; busy = true; streamGeneration++; clearTimeout(frameTimer); controls(false); $('#status').textContent = 'Opening profile…';
   $('#screen').hidden = true; $('#empty').hidden = false; $('#empty').textContent = 'Saving previous profile and opening this account…';
   try {
-    await api(takeControl ? 'takeover' : 'open', {id}); active = id; blockedAccount = null; takeoverButton.hidden = true; await loadAccounts(); $('#empty').hidden = true; controls(true); $('#screen').hidden = false; $('#status').textContent = 'Browser open · login status not checked'; await pollFrame();
-  } catch (e) { blocked(id, e); active = null; render(); $('#status').textContent = 'Could not open'; $('#empty').textContent = e.message; toast(e.message); }
+    await api(reconnect ? 'reconnect' : takeControl ? 'takeover' : 'open', {id}); active = id; failedFrames = 0; reconnectAccount = null; reconnectButton.hidden = true; blockedAccount = null; takeoverButton.hidden = true; await loadAccounts(); $('#empty').hidden = true; controls(true); $('#screen').hidden = false; $('#status').textContent = 'Browser open · login status not checked'; await pollFrame();
+  } catch (e) { blocked(id, e); if (reconnect && e.status !== 409 && e.status !== 401) { reconnectAccount = id; reconnectButton.hidden = false; } active = null; render(); $('#status').textContent = 'Could not open'; $('#empty').textContent = e.message; toast(e.message); }
   finally { busy = false; }
 }
 async function pollFrame(generation = streamGeneration) {
@@ -70,12 +75,21 @@ async function pollFrame(generation = streamGeneration) {
   try {
     const blob = await api('frame/' + id, undefined, true); if (active !== id || generation !== streamGeneration || !embeddedVisible) return;
     const next = URL.createObjectURL(blob); $('#screen').src = next; if (imageURL) URL.revokeObjectURL(imageURL); imageURL = next;
+    failedFrames = 0; $('#status').textContent = 'Browser connected · login status not checked';
   } catch(e) {
     if (generation !== streamGeneration) return;
     if (e.status === 409 || e.status === 401) { blocked(id, e); active = null; controls(false); $('#screen').hidden = true; $('#empty').hidden = false; $('#empty').textContent = e.message; render(); toast(e.message); return; }
-    $('#status').textContent = 'Connection interrupted · retrying';
+    failedFrames++;
+    if (failedFrames >= 3) {
+      reconnectAccount = id; reconnectButton.hidden = false; controls(false);
+      $('#screen').hidden = true; $('#empty').hidden = false;
+      $('#empty').textContent = e.message || 'The browser connection failed. Click Reconnect browser to reopen this account.';
+      $('#status').textContent = 'Browser disconnected · reconnect available';
+      return;
+    }
+    $('#status').textContent = 'Retrying browser connection (' + failedFrames + '/3)…';
   }
-  if (generation === streamGeneration) frameTimer = setTimeout(() => pollFrame(generation), document.hidden ? 8000 : 1600);
+  if (generation === streamGeneration) frameTimer = setTimeout(() => pollFrame(generation), failedFrames ? Math.min(10000, 2500 * failedFrames) : 2000);
 }
 takeoverButton.onclick = () => {
   if (!blockedAccount || busy) return;

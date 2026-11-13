@@ -54,6 +54,16 @@ class VaultTests(unittest.TestCase):
                 unpack_profile(Fernet(key).encrypt(buffer.getvalue()), Path(tmp), key.decode())
 
 class BrowserTests(unittest.IsolatedAsyncioTestCase):
+    async def test_frame_timeout_returns_recoverable_503(self):
+        browser = module.Browser(None)
+        page = types.SimpleNamespace(is_closed=lambda:False, screenshot=AsyncMock(side_effect=TimeoutError()))
+        browser.page = page
+        browser.context = types.SimpleNamespace(pages=[page])
+        with self.assertRaises(HTTPException) as caught:
+            await browser.frame()
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn('Reconnect', caught.exception.detail)
+
     async def test_explicit_takeover_blocks_previous_tab_without_closing_browser(self):
         browser = module.Browser(None)
         existing_context = object()

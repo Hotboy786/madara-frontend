@@ -193,14 +193,21 @@ class Browser:
             log.info('Page navigation did not finish within the initial load period.')
 
     async def frame(self):
-        if self.page.is_closed():
+        if self.context is None:
+            raise HTTPException(503, 'The cloud browser stopped. Use Reconnect browser to reopen the saved profile.')
+        if self.page is None or self.page.is_closed():
             pages = [p for p in self.context.pages if not p.is_closed()]
             self.page = pages[-1] if pages else await self.context.new_page()
         # OAuth popups open within this same account context.
         pages = [p for p in self.context.pages if not p.is_closed()]
         if pages:
             self.page = pages[-1]
-        return await self.page.screenshot(type='jpeg', quality=65, timeout=12000)
+        try:
+            return await self.page.screenshot(type='jpeg', quality=55, timeout=8000,
+                                              animations='disabled', caret='hide')
+        except Exception as error:
+            log.warning('Browser frame failed (%s).', type(error).__name__)
+            raise HTTPException(503, 'The cloud browser is not responding. Reconnect it; the free host may have run out of memory.') from error
 
     async def idle(self):
         while True:
@@ -386,6 +393,20 @@ async def takeover(request: Request):
     row = await app.state.store.account(ident)
     async with browser.lock:
         browser.claim(identity, request.headers.get('X-Client-ID'), takeover=True)
+        await browser.open(row)
+    return {'id': ident}
+
+@app.post('/api/reconnect')
+async def reconnect(request: Request):
+    identity = await user(request)
+    ident = account_id((await body(request)).get('id'))
+    browser = app.state.browser
+    row = await app.state.store.account(ident)
+    async with browser.lock:
+        browser.claim(identity, request.headers.get('X-Client-ID'))
+        if browser.active is not None and browser.active != ident:
+            raise HTTPException(409, 'A different account is open. Select your account again.')
+        await browser.flush()
         await browser.open(row)
     return {'id': ident}
 
