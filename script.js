@@ -1751,7 +1751,7 @@ submitOrderBtn.addEventListener("click", async () => {
       const res = await fetch(`${PROXY_ORIGIN}/schedule-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, link, baseUrl: PANEL.baseUrl, apiKey: PANEL.apiKey, legs: allLegsForOrder }),
+        body: JSON.stringify({ name, link, policyVersion:2, baseUrl: PANEL.baseUrl, apiKey: PANEL.apiKey, legs: allLegsForOrder }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2211,7 +2211,7 @@ async function renderLegRequestLog() {
     if(!res.ok) throw new Error();
     const orders=await res.json();
     el.innerHTML='<h3>Batch request schedule</h3><p>Planned times are earliest request times. Each leg waits for the previous leg to complete. Times use your browser timezone.</p><button id="refreshLegLog" class="tab-btn">Refresh batches</button>'+
-      orders.map(o=>'<h4>'+escapeLog(o.name)+'</h4><div style="overflow-x:auto"><table><thead><tr><th>Leg</th><th>Service</th><th>Quantity</th><th>Planned request</th><th>Actually requested</th><th>Completed</th><th>Status</th><th>Provider order</th></tr></thead><tbody>'+
+      orders.map(o=>'<h4>'+escapeLog(o.name)+' — '+(o.policyVersion>=2?'Sequential batches':'Original delivery rules')+'</h4><div style="overflow-x:auto"><table><thead><tr><th>Leg</th><th>Service</th><th>Quantity</th><th>Planned request</th><th>Actually requested</th><th>Completed</th><th>Status</th><th>Provider order</th></tr></thead><tbody>'+
       (o.legs||[]).map(l=>'<tr>'+[l.id,l.category,l.quantity,date(l.scheduledAt),date(l.requestedAt),date(l.completedAt),l.status+(l.providerStatus?' / '+l.providerStatus:'')+(l.error?' / '+l.error:''),l.providerOrderId||'—'].map(v=>'<td style="padding:8px">'+escapeLog(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>').join('');
     document.getElementById('refreshLegLog').onclick=renderLegRequestLog;
   } catch { el.textContent='Unable to load batch request schedule. Reopen Logs to retry.'; }
