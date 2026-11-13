@@ -1748,6 +1748,9 @@ submitOrderBtn.addEventListener("click", async () => {
     orderStatusEl.textContent = "Sending schedule to the server...";
     orderStatusEl.className = "connect-status";
     try {
+      const healthResponse = await fetch(PROXY_ORIGIN+'/health', {cache:'no-store'});
+      const health = healthResponse.ok ? await healthResponse.json() : null;
+      if(health?.version!=='sequential-legs-v2') throw new Error('The sequential scheduler is still deploying. Please retry shortly; no new order was sent.');
       const res = await fetch(`${PROXY_ORIGIN}/schedule-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
