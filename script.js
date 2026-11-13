@@ -1282,23 +1282,35 @@ function generateBoundedViewLegs(quantity, durationHours, minQty, randomness, cu
     throw new Error('Cannot split this total into 100–115-view batches with the selected service minimum. Adjust quantity or service.');
   }
   const count=least+Math.floor(Math.random()*(Math.min(most,2000)-least+1));
-  let remaining=quantity;
-  const amounts=Array.from({length:count},(_,i)=>{
-    const left=count-i-1;
-    const lo=Math.max(lower,remaining-left*upper);
-    const hi=Math.min(upper,remaining-left*lower);
-    const amount=lo+Math.floor(Math.random()*(hi-lo+1));
-    remaining-=amount;
-    return amount;
-  });
-  // Curve controls relative spacing; bounded jitter keeps request times ordered.
+  const amounts=Array(count).fill(lower);
+  let extra=quantity-count*lower;
+  // Give every leg an extra unit when possible, then distribute across the whole plan.
+  if(upper>lower && extra>=count) {
+    amounts.fill(lower+1);
+    extra-=count;
+  }
+  const available=Array.from({length:count},(_,i)=>i).filter(i=>amounts[i]<upper);
+  while(extra>0) {
+    const pick=Math.floor(Math.random()*available.length);
+    const index=available[pick];
+    amounts[index]++;
+    extra--;
+    if(amounts[index]===upper) available.splice(pick,1);
+  }
+  // Retain the curve's relative pace without allowing extreme silent gaps.
   const weights=resampleCurve(curvePoints,count).map(w=>Math.max(1,w));
-  const gaps=weights.slice(1).map(w=>(1/w)*(1+(Math.random()*2-1)*Math.min(randomness,40)/100));
-  const sum=gaps.reduce((a,b)=>a+b,0)||1;
+  const meanWeight=weights.reduce((a,b)=>a+b,0)/count;
+  const raw=weights.slice(1).map(w=>Math.max(0.8,Math.min(1.2,meanWeight/w))*
+    (1+(Math.random()*2-1)*Math.min(randomness,40)/100));
+  const mean=raw.reduce((a,b)=>a+b,0)/(raw.length||1);
+  const maxDeviation=Math.max(...raw.map(g=>Math.abs(g-mean)),0.000001);
+  const gaps=raw.map(g=>1+0.25*(g-mean)/maxDeviation);
+  const durationSeconds=Math.round(durationHours*3600);
   let elapsed=0;
   return amounts.map((amount,i)=>{
-    if(i) elapsed+=gaps[i-1]/sum*durationHours*60;
-    return {index:i+1,amount,minutesAt:elapsed};
+    if(i) elapsed+=gaps[i-1]/Math.max(1,count-1)*durationSeconds;
+    const seconds=i===count-1 && count>1?durationSeconds:Math.round(elapsed);
+    return {index:i+1,amount,minutesAt:seconds/60};
   });
 }
 
@@ -1494,10 +1506,11 @@ function updateCardPreview(card) {
 }
 
 function formatMinutes(mins) {
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  const seconds=Math.max(0,Math.round(Number(mins)*60)||0);
+  const h=Math.floor(seconds/3600), m=Math.floor((seconds%3600)/60), sec=seconds%60;
+  if(h) return `${h}h${m?' '+m+'m':''}${sec?' '+sec+'s':''}`;
+  if(m) return `${m} min${sec?' '+sec+'s':''}`;
+  return seconds ? `${sec}s` : '0 min';
 }
 
 // ==========================================
