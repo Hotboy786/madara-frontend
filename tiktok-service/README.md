@@ -7,7 +7,7 @@ profiles. One person controls one active account at a time.
 
 **Status:** source prepared, not deployed. Supabase, Render, TikTok login, and
 browser performance on Render's free instance must be tested on your own services.
-Seven unit tests passed for encrypted archive restoration, invalid archive
+Eight unit tests passed for encrypted archive restoration, invalid archive
 rejection, access checks, control leases, backup ordering/failures, and the account
 limit. Python and browser JavaScript syntax checks passed. Cloud and Chromium
 interactions were mocked; no real TikTok or deployed browser test has run.

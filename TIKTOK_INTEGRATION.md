@@ -34,7 +34,7 @@ before leaving to avoid losing recent login changes on an unexpected restart.
 
 ## Verification and limits
 
-Seven service unit checks pass with cloud/browser interactions mocked. Syntax
+Eight service unit checks pass with cloud/browser interactions mocked. Syntax
 and source-preservation checks cover the add-on. Live Render, Supabase, TikTok,
 iframe rendering, and real provider regression tests have not been run. The
 free-tier browser may run out of memory or encounter TikTok challenges.
